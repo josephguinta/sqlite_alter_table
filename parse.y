@@ -1426,7 +1426,7 @@ cmd ::= ALTER TABLE add_column_fullname ADD kwcolumn_opt column(Y). {
 }
 cmd ::= ALTER TABLE fullname(X) add_column_fullname DROP kwcolumn_opt column(Y). {
 	printf("parser switch called");
-	sqlite3AlterDropColumn(pParse,X);
+	sqlite3AlterDropColumn(pParse,X, &Y);
 }
 add_column_fullname ::= fullname(X). {
   pParse->db->lookaside.bEnabled = 0;
