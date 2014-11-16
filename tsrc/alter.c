@@ -842,7 +842,7 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	Column *pCol;             /* The new column */
 	Expr *pDflt;              /* Default value for the new column */
 	
-	printf("hi");
+	printf("hi\n");
 	/* Look up the table being altered. */
 	assert(pParse->pNewTable == 0);
 	assert(sqlite3BtreeHoldsAllMutexes(db));
@@ -856,7 +856,7 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 		goto exit_drop_column;
 		}
 #endif
-
+		printf("hi2\n");
 	/* Make sure this is not an attempt to ALTER a view. */
 	if (pTab->pSelect){
 		sqlite3ErrorMsg(pParse, "Cannot drop a column from a view");
@@ -865,7 +865,7 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	if (SQLITE_OK != isSystemTable(pParse, pTab->zName)){
 		goto exit_drop_column;
 	}
-
+	printf("hi3\n");
 
 	iDb = sqlite3SchemaToIndex(db, pTab->pSchema);
 
@@ -877,7 +877,8 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	assert(pNew->nCol>0);
 	nAlloc = (((pNew->nCol - 1) / 8) * 8) + 8;
 	assert(nAlloc >= pNew->nCol && nAlloc % 8 == 0 && nAlloc - pNew->nCol<8);
-
+	printf("hi4\n");
+	pNew->aCol = (Column*)sqlite3DbMallocZero(db, sizeof(Column)*nAlloc);
 	pNew->zName = sqlite3MPrintf(db, "sqlite_altertab_%s", pTab->zName);
 	zCol = sqlite3DbStrNDup(db, (char*)pColDef->z, pColDef->n);
 	if (zCol){
@@ -887,23 +888,25 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 			*zEnd-- = '\0';
 		}
 	}
-	printf("%s", zCol);
+	printf("col = __%s__\n", zCol);
 	//memcpy(pNew->aCol, pTab->aCol, sizeof(Column)*pNew->nCol);
-	for (i = 0; i<pNew->nCol + 1; i++){
+	for (i = 0; i< (pNew->nCol + 1); i++){
 		int j = 0;
-		if (!strcmp(pTab->aCol[i].zName, zCol)) {
-			pNew->aCol[j] = pTab->aCol[i];
+		printf("i = %d, j = %d, col name = __%s__\n", i, j, pTab->aCol[i].zName);
+		if (!(strcmp(pTab->aCol[i].zName, zCol)) != 0) {
+			printf("i = %d, j = %d, col name = %s\n", i, j, pTab->aCol[i].zName);
+			memcpy(&(pNew->aCol[j]), &(pTab->aCol[i]), sizeof(Column));
 			j++;
-			Column *pCol = &pNew->aCol[j];
+	/*		Column *pCol = &pNew->aCol[j];
 			pCol->zName = sqlite3DbStrDup(db, pCol->zName);
 			pCol->zColl = 0;
 			pCol->zType = 0;
 			pCol->pDflt = 0;
-			pCol->zDflt = 0;
+			pCol->zDflt = 0;*/
 		}
 		
-		//}
 	}
+	printf("hi5\n");
 	sqlite3DbFree(db, zCol);
 	pNew->pSchema = db->aDb[iDb].pSchema;
 	pNew->nRef = 1;
@@ -913,7 +916,7 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	v = sqlite3GetVdbe(pParse);
 	if (!v) goto exit_drop_column;
 	sqlite3ChangeCookie(pParse, iDb);
-
+	printf("hi6\n");
 exit_drop_column:
 	sqlite3SrcListDelete(db, pSrc);
 	return;

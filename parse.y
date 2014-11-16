@@ -1424,14 +1424,16 @@ cmd ::= ALTER TABLE fullname(X) RENAME TO nm(Z). {
 cmd ::= ALTER TABLE add_column_fullname ADD kwcolumn_opt column(Y). {
   sqlite3AlterFinishAddColumn(pParse, &Y);
 }
-cmd ::= ALTER TABLE fullname(X)  DROP kwcolumn_opt column(Y). {
-	printf("parser switch called");
-	sqlite3AlterDropColumn(pParse,X, &Y);
-}
 add_column_fullname ::= fullname(X). {
   pParse->db->lookaside.bEnabled = 0;
   sqlite3AlterBeginAddColumn(pParse, X);
 }
+
+cmd ::= ALTER TABLE fullname(X) DROP kwcolumn_opt column(Y). {
+	printf("parser switch called");
+	sqlite3AlterDropColumn(pParse,X, &Y);
+}
+
 kwcolumn_opt ::= .
 kwcolumn_opt ::= COLUMNKW.
 %endif  SQLITE_OMIT_ALTERTABLE
