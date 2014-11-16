@@ -826,7 +826,7 @@ exit_begin_add_column:
   return;
 }
 
-SQLITE_PRIVATE void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
+void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	Table *pNew;
 	Table *pTab;
 	Vdbe *v;
@@ -883,7 +883,7 @@ SQLITE_PRIVATE void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *
 	//memcpy(pNew->aCol, pTab->aCol, sizeof(Column)*pNew->nCol);
 	for (i = 0; i<pNew->nCol + 1; i++){
 		//if (pTab->aCol[i]->zName != pColDef.) {
-		memcpy(pNew->&(aCol[i]), pTab->&(aCol[i]), sizeof(Column);
+		pNew->aCol[i] =  pTab->aCol[i];
 		Column *pCol = &pNew->aCol[i];
 		pCol->zName = sqlite3DbStrDup(db, pCol->zName);
 		pCol->zColl = 0;
