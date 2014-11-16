@@ -803,7 +803,7 @@ void sqlite3AlterBeginAddColumn(Parse *pParse, SrcList *pSrc){
     goto exit_begin_add_column;
   }
   memcpy(pNew->aCol, pTab->aCol, sizeof(Column)*pNew->nCol);
-  for(i=0; i<pNew->nCol; i++){
+  for (i=0; i<pNew->nCol; i++) {
     Column *pCol = &pNew->aCol[i];
     pCol->zName = sqlite3DbStrDup(db, pCol->zName);
     pCol->zColl = 0;
@@ -879,19 +879,32 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	assert(nAlloc >= pNew->nCol && nAlloc % 8 == 0 && nAlloc - pNew->nCol<8);
 
 	pNew->zName = sqlite3MPrintf(db, "sqlite_altertab_%s", pTab->zName);
-
+	zCol = sqlite3DbStrNDup(db, (char*)pColDef->z, pColDef->n);
+	if (zCol){
+		char *zEnd = &zCol[pColDef->n - 1];
+		int savedDbFlags = db->flags;
+		while (zEnd > zCol && (*zEnd == ';' || sqlite3Isspace(*zEnd))){
+			*zEnd-- = '\0';
+		}
+	}
+	printf("%s", zCol);
 	//memcpy(pNew->aCol, pTab->aCol, sizeof(Column)*pNew->nCol);
 	for (i = 0; i<pNew->nCol + 1; i++){
-		//if (pTab->aCol[i]->zName != pColDef.) {
-		pNew->aCol[i] =  pTab->aCol[i];
-		Column *pCol = &pNew->aCol[i];
-		pCol->zName = sqlite3DbStrDup(db, pCol->zName);
-		pCol->zColl = 0;
-		pCol->zType = 0;
-		pCol->pDflt = 0;
-		pCol->zDflt = 0;
+		int j = 0;
+		if (!strcmp(pTab->aCol[i].zName, zCol)) {
+			pNew->aCol[j] = pTab->aCol[i];
+			j++;
+			Column *pCol = &pNew->aCol[j];
+			pCol->zName = sqlite3DbStrDup(db, pCol->zName);
+			pCol->zColl = 0;
+			pCol->zType = 0;
+			pCol->pDflt = 0;
+			pCol->zDflt = 0;
+		}
+		
 		//}
 	}
+	sqlite3DbFree(db, zCol);
 	pNew->pSchema = db->aDb[iDb].pSchema;
 	pNew->nRef = 1;
 
