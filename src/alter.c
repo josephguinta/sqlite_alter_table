@@ -968,4 +968,179 @@ exit_drop_column:
 	sqlite3SrcListDelete(db, pSrc);
 	return;
 }
+
+void sqlite3AlterRenameColumn(Parse *pParse, SrcList *pSrc, Token *pOColDef, Token *pNColDef) {
+	Table *pNew;
+	Table *pTab;
+	Vdbe *v;
+	int iDb;
+	int i;
+	int nAlloc;
+	sqlite3 *db = pParse->db;
+
+
+	const char *zDb;          /* Database name */
+	const char *zTab;         /* Table name */
+	char *oCol;               /* Null-terminated column definition */
+	char *nCol;
+
+
+	/* Look up the table being altered. */
+	assert(pParse->pNewTable == 0);
+	assert(sqlite3BtreeHoldsAllMutexes(db));
+	if (db->mallocFailed) goto exit_rename_column;
+	pTab = sqlite3LocateTableItem(pParse, 0, &pSrc->a[0]);
+	if (!pTab) goto exit_rename_column;
+
+#ifndef SQLITE_OMIT_VIRTUALTABLE
+	if (IsVirtual(pTab)){
+		sqlite3ErrorMsg(pParse, "virtual tables may not be altered");
+		goto exit_rename_column;
+	}
+#endif
+
+	/* Make sure this is not an attempt to ALTER a view. */
+	if (pTab->pSelect){
+		sqlite3ErrorMsg(pParse, "Cannot drop a column from a view");
+		goto exit_rename_column;
+	}
+	if (SQLITE_OK != isSystemTable(pParse, pTab->zName)){
+		goto exit_rename_column;
+	}
+	printf("%s\n", pTab->zName);
+
+	iDb = sqlite3SchemaToIndex(db, pTab->pSchema);
+	
+	char* zEnd;
+	int savedDbFlags;
+	oCol = sqlite3DbStrNDup(db, (char*)pOColDef->z, pOColDef->n);
+	if (oCol){
+		zEnd = &oCol[pOColDef->n - 1];
+		savedDbFlags = db->flags;
+		while (zEnd > oCol && (*zEnd == ';' || sqlite3Isspace(*zEnd))){
+			*zEnd-- = '\0';
+		}
+	}
+	 
+	nCol = sqlite3DbStrNDup(db, (char*)pNColDef->z, pNColDef->n);
+	if (nCol){
+		zEnd = &nCol[pNColDef->n - 1];
+		savedDbFlags = db->flags;
+		while (zEnd > nCol && (*zEnd == ';' || sqlite3Isspace(*zEnd))){
+			*zEnd-- = '\0';
+		}
+	}
+
+	char nbufCol[256] = "";
+	char obufCol[256] = "";
+	int j = 0;
+	for (i = 0; i< (pTab->nCol); i++) {
+		printf("oCol = %s\n", oCol);
+		printf("ptab.ACOL =%s\n", pTab->aCol[i].zName);
+		if (strcmp(pTab->aCol[i].zName, oCol) != 0) {
+			if (j == 0) {
+				sprintf(nbufCol, "%s%s", nbufCol, pTab->aCol[i].zName);
+				sprintf(obufCol, "%s%s", obufCol, pTab->aCol[i].zName);
+			}
+			else {
+				sprintf(nbufCol, "%s,%s", nbufCol, pTab->aCol[i].zName);
+				sprintf(obufCol, "%s,%s", obufCol, pTab->aCol[i].zName);
+			}
+			j++;
+		}
+		else {
+			if (j == 0) {
+				sprintf(nbufCol, "%s%s", nbufCol, nCol);
+				sprintf(obufCol, "%s%s", obufCol, oCol);
+			}
+			else {
+				sprintf(nbufCol, "%s,%s", nbufCol, nCol);
+				sprintf(obufCol, "%s,%s", obufCol, oCol);
+			}
+			j++;
+		}
+
+	}
+	printf("nCol = %s\n", nbufCol); printf("oCol = %s\n", obufCol);
+	Db *pDb;
+	pDb = &db->aDb[iDb];
+
+	char* oldName = sqlite3MPrintf(db, "%s", pTab->zName);
+	char* tempName = sqlite3MPrintf(db, "old_%s", pTab->zName);
+
+	sqlite3BeginWriteOperation(pParse, 0, iDb);
+	v = sqlite3GetVdbe(pParse);
+	if (!v) goto exit_rename_column;
+	sqlite3ChangeCookie(pParse, iDb);
+
+	char *zErrMsg = 0;
+	int  rc;
+	char *sql = sqlite3MPrintf(db, "CREATE TABLE %s(%s);", tempName, nbufCol);
+	printf("%s\n", sql);
+	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
+	if (rc != SQLITE_OK){
+		fprintf(stderr, "SQL error: %s\n", zErrMsg);
+		sqlite3_free(zErrMsg);
+	}
+	else {
+		fprintf(stdout, "Table created successfully\n");
+	}
+	sql = sqlite3MPrintf(db, "INSERT INTO %s(%s) SELECT %s FROM %s;", tempName, nbufCol, obufCol, oldName);
+	printf("%s\n", sql);
+	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
+	if (rc != SQLITE_OK){
+		fprintf(stderr, "SQL error: %s\n", zErrMsg);
+		sqlite3_free(zErrMsg);
+	}
+	else {
+		fprintf(stdout, "Insert into temp completed\n");
+	}
+	sql = sqlite3MPrintf(db, "DROP TABLE %s;", oldName);
+	printf("%s\n", sql);
+	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
+	if (rc != SQLITE_OK){
+		fprintf(stderr, "SQL error: %s\n", zErrMsg);
+		sqlite3_free(zErrMsg);
+	}
+	else {
+		fprintf(stdout, "Old Table dropped\n");
+	}
+	sql = sqlite3MPrintf(db, "CREATE TABLE %s(%s);", oldName, nbufCol);
+	printf("%s\n", sql);
+	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
+	if (rc != SQLITE_OK){
+		fprintf(stderr, "SQL error: %s\n", zErrMsg);
+		sqlite3_free(zErrMsg);
+	}
+	else {
+		fprintf(stdout, "Table recreated\n");
+	}
+	sql = sqlite3MPrintf(db, "INSERT INTO %s SELECT %s FROM %s;", oldName, nbufCol, tempName);
+	printf("%s\n", sql);
+	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
+	if (rc != SQLITE_OK){
+		fprintf(stderr, "SQL error: %s\n", zErrMsg);
+		sqlite3_free(zErrMsg);
+	}
+	else {
+		fprintf(stdout, "Insert into recreated successful\n");
+	}
+	sql = sqlite3MPrintf(db, "DROP TABLE %s;", tempName);
+	printf("%s\n", sql);
+	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
+	if (rc != SQLITE_OK){
+		fprintf(stderr, "SQL error: %s\n", zErrMsg);
+		sqlite3_free(zErrMsg);
+	}
+	else {
+		fprintf(stdout, "Temp table dropped\n");
+	}
+
+
+	//sqlite3_free(sql);
+
+exit_rename_column:
+	sqlite3SrcListDelete(db, pSrc);
+	return;
+}
 #endif  /* SQLITE_ALTER_TABLE */
