@@ -1430,13 +1430,13 @@ add_column_fullname ::= fullname(X). {
 }
 
 cmd ::= ALTER TABLE fullname(X) DROP kwcolumn_opt column(Y). {
-	printf("parser switch called\n");
-	sqlite3AlterDropColumn(pParse,X, &Y);
+	//printf("parser switch called\n");
+	sqlite3AlterDropColumn2(pParse,X, &Y);
 }
 
-cmd ::= ALTER TABLE fullname(X) RENAME kwcolumn_opt column(Y) TO kwcolumn_opt column(Z). {
+cmd ::= ALTER TABLE fullname(X) RENAME kwcolumn_opt column(Y) TO column(Z). {
 	printf("ALTER RENAME COL\n");
-	sqlite3AlterRenameColumn(pParse, X, &Y, &Z);
+	sqlite3AlterRenameColumn2(pParse, X, &Y, &Z);
 }
 
 kwcolumn_opt ::= .

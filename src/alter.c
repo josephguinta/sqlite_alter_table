@@ -516,6 +516,22 @@ void sqlite3AlterRenameTable(
 #endif
 
   /* Modify the sqlite_master table to use the new table name. */
+  printf("UPDATE %s.%s SET "
+	  "sql = CASE "
+	  "WHEN type = 'trigger' THEN sqlite_rename_trigger(sql, %s)"
+	  "ELSE sqlite_rename_table(sql, %s) END, "
+	  "tbl_name = %s, "
+	  "name = CASE \n"
+	  "WHEN type='table' THEN %s "
+	  "WHEN name LIKE 'sqlite_autoindex%%' AND type='index' THEN "
+	  "'sqlite_autoindex_' || %s || substr(name,%d+18) "
+	  "ELSE name END \n"
+	  "WHERE tbl_name=%s COLLATE nocase AND "
+	  "(type='table' OR type='index' OR type='trigger');\n",
+	  zDb, SCHEMA_TABLE(iDb), zName, zName, zName,
+	  zName,
+	  zName, nTabName, zTabName);
+
   sqlite3NestedParse(pParse,
       "UPDATE %Q.%s SET "
 #ifdef SQLITE_OMIT_TRIGGER
@@ -969,6 +985,93 @@ exit_drop_column:
 	return;
 }
 
+void sqlite3AlterDropColumn2(Parse *pParse, SrcList *pSrc, Token *pColDef) {
+	Table *pNew;
+	Table *pTab;
+	Vdbe *v;
+	int iDb;
+	int i;
+	int nAlloc;
+	sqlite3 *db = pParse->db;
+
+
+	const char *zDb;          /* Database name */
+	const char *zTab;         /* Table name */
+	char *zCol;               /* Null-terminated column definition */
+	Column *pCol;             /* The new column */
+	Expr *pDflt;              /* Default value for the new column */
+
+
+	/* Look up the table being altered. */
+	assert(pParse->pNewTable == 0);
+	assert(sqlite3BtreeHoldsAllMutexes(db));
+	if (db->mallocFailed) goto exit_drop_column2;
+	pTab = sqlite3LocateTableItem(pParse, 0, &pSrc->a[0]);
+	if (!pTab) goto exit_drop_column2;
+
+#ifndef SQLITE_OMIT_VIRTUALTABLE
+	if (IsVirtual(pTab)){
+		sqlite3ErrorMsg(pParse, "virtual tables may not be altered");
+		goto exit_drop_column2;
+	}
+#endif
+
+	/* Make sure this is not an attempt to ALTER a view. */
+	if (pTab->pSelect){
+		sqlite3ErrorMsg(pParse, "Cannot drop a column from a view");
+		goto exit_drop_column2;
+	}
+	if (SQLITE_OK != isSystemTable(pParse, pTab->zName)){
+		goto exit_drop_column2;
+	}
+	printf("%s\n", pTab->zName);
+
+	iDb = sqlite3SchemaToIndex(db, pTab->pSchema);
+	char* oldName = sqlite3MPrintf(db, "%s", pTab->zName);
+	char* tempName = sqlite3MPrintf(db, "old_%s", pTab->zName);
+
+	zCol = sqlite3DbStrNDup(db, (char*)pColDef->z, pColDef->n);
+	if (zCol){
+		char *zEnd = &zCol[pColDef->n - 1];
+		int savedDbFlags = db->flags;
+		while (zEnd > zCol && (*zEnd == ';' || sqlite3Isspace(*zEnd))){
+			*zEnd-- = '\0';
+		}
+	}
+
+	char bufCol[256] = "";
+	int j = 0;
+	for (i = 0; i< (pTab->nCol); i++) {
+		if (strcmp(pTab->aCol[i].zName, zCol) != 0) {
+			if (j == 0) sprintf(bufCol, "%s%s", bufCol, pTab->aCol[i].zName);
+			else sprintf(bufCol, "%s,%s", bufCol, pTab->aCol[i].zName);
+			j++;
+		}
+
+	}
+	Db *pDb;
+	pDb = &db->aDb[iDb];
+
+	sqlite3BeginWriteOperation(pParse, 0, iDb);
+	v = sqlite3GetVdbe(pParse);
+	if (!v) goto exit_drop_column2;
+	sqlite3ChangeCookie(pParse, iDb);
+
+	sqlite3NestedParse(pParse,
+		"UPDATE main.sqlite_master SET sql = 'CREATE TABLE %s(%s)' WHERE tbl_name=%Q;",
+		pTab->zName, bufCol, pTab->zName
+		);
+
+
+	/* Drop and reload the internal table schema. */
+	reloadTableSchema(pParse, pTab, pTab->zName);
+	
+
+exit_drop_column2:
+	sqlite3SrcListDelete(db, pSrc);
+	return;
+}
+
 void sqlite3AlterRenameColumn(Parse *pParse, SrcList *pSrc, Token *pOColDef, Token *pNColDef) {
 	Table *pNew;
 	Table *pTab;
@@ -1021,7 +1124,8 @@ void sqlite3AlterRenameColumn(Parse *pParse, SrcList *pSrc, Token *pOColDef, Tok
 			*zEnd-- = '\0';
 		}
 	}
-	 
+	char* oColsub = malloc(sizeof(char) * strlen(oCol) - 3);
+	strncpy(oColsub, oCol, strlen(oCol) - 3);
 	nCol = sqlite3DbStrNDup(db, (char*)pNColDef->z, pNColDef->n);
 	if (nCol){
 		zEnd = &nCol[pNColDef->n - 1];
@@ -1035,9 +1139,9 @@ void sqlite3AlterRenameColumn(Parse *pParse, SrcList *pSrc, Token *pOColDef, Tok
 	char obufCol[256] = "";
 	int j = 0;
 	for (i = 0; i< (pTab->nCol); i++) {
-		printf("oCol = %s\n", oCol);
+		printf("oCol = %s\n", oColsub);
 		printf("ptab.ACOL =%s\n", pTab->aCol[i].zName);
-		if (strcmp(pTab->aCol[i].zName, oCol) != 0) {
+		if (strcmp(pTab->aCol[i].zName, oColsub) != 0) {
 			if (j == 0) {
 				sprintf(nbufCol, "%s%s", nbufCol, pTab->aCol[i].zName);
 				sprintf(obufCol, "%s%s", obufCol, pTab->aCol[i].zName);
@@ -1051,17 +1155,17 @@ void sqlite3AlterRenameColumn(Parse *pParse, SrcList *pSrc, Token *pOColDef, Tok
 		else {
 			if (j == 0) {
 				sprintf(nbufCol, "%s%s", nbufCol, nCol);
-				sprintf(obufCol, "%s%s", obufCol, oCol);
+				sprintf(obufCol, "%s%s", obufCol, oColsub);
 			}
 			else {
 				sprintf(nbufCol, "%s,%s", nbufCol, nCol);
-				sprintf(obufCol, "%s,%s", obufCol, oCol);
+				sprintf(obufCol, "%s,%s", obufCol, oColsub);
 			}
 			j++;
 		}
 
 	}
-	printf("nCol = %s\n", nbufCol); printf("oCol = %s\n", obufCol);
+	printf("nCol = %s\n", nbufCol); printf("oColsub = %s\n", obufCol);
 	Db *pDb;
 	pDb = &db->aDb[iDb];
 
@@ -1141,6 +1245,129 @@ void sqlite3AlterRenameColumn(Parse *pParse, SrcList *pSrc, Token *pOColDef, Tok
 
 exit_rename_column:
 	sqlite3SrcListDelete(db, pSrc);
+	return;
+}
+
+void sqlite3AlterRenameColumn2(Parse *pParse, SrcList *pSrc, Token *pOColDef, Token *pNColDef) {
+	Table *pNew;
+	Table *pTab;
+	Vdbe *v;
+	int iDb;
+	int i;
+	int nAlloc;
+	sqlite3 *db = pParse->db;
+
+
+	const char *zDb;          /* Database name */
+	const char *zTab;         /* Table name */
+	char *zCol;               /* Null-terminated column definition */
+	Column *pCol;             /* The new column */
+	Expr *pDflt;              /* Default value for the new column */
+	char* oCol; char* nCol;
+
+	/* Look up the table being altered. */
+	assert(pParse->pNewTable == 0);
+	assert(sqlite3BtreeHoldsAllMutexes(db));
+	if (db->mallocFailed) goto exit_rename_column2;
+	pTab = sqlite3LocateTableItem(pParse, 0, &pSrc->a[0]);
+	if (!pTab) goto exit_rename_column2;
+
+#ifndef SQLITE_OMIT_VIRTUALTABLE
+	if (IsVirtual(pTab)){
+		sqlite3ErrorMsg(pParse, "virtual tables may not be altered");
+		goto exit_rename_column2;
+	}
+#endif
+
+	/* Make sure this is not an attempt to ALTER a view. */
+	if (pTab->pSelect){
+		sqlite3ErrorMsg(pParse, "Cannot drop a column from a view");
+		goto exit_rename_column2;
+	}
+	if (SQLITE_OK != isSystemTable(pParse, pTab->zName)){
+		goto exit_rename_column2;
+	}
+	
+	char* zEnd;
+	int savedDbFlags;
+	oCol = sqlite3DbStrNDup(db, (char*)pOColDef->z, pOColDef->n);
+	if (oCol){
+		zEnd = &oCol[pOColDef->n - 1];
+		savedDbFlags = db->flags;
+		while (zEnd > oCol && (*zEnd == ';' || sqlite3Isspace(*zEnd))){
+			*zEnd-- = '\0';
+		}
+	}
+	char* oColsub = malloc(sizeof(char) * strlen(oCol) - 3);
+	strncpy(oColsub, oCol, strlen(oCol) - 3);
+	nCol = sqlite3DbStrNDup(db, (char*)pNColDef->z, pNColDef->n);
+	if (nCol){
+		zEnd = &nCol[pNColDef->n - 1];
+		savedDbFlags = db->flags;
+		while (zEnd > nCol && (*zEnd == ';' || sqlite3Isspace(*zEnd))){
+			*zEnd-- = '\0';
+		}
+	}
+
+	char nbufCol[256] = "";
+	char obufCol[256] = "";
+	int j = 0;
+	for (i = 0; i< (pTab->nCol); i++) {
+		printf("oCol = %s\n", oColsub);
+		printf("ptab.ACOL =%s\n", pTab->aCol[i].zName);
+		if (strcmp(pTab->aCol[i].zName, oColsub) != 0) {
+			if (j == 0) {
+				sprintf(nbufCol, "%s%s", nbufCol, pTab->aCol[i].zName);
+				sprintf(obufCol, "%s%s", obufCol, pTab->aCol[i].zName);
+			}
+			else {
+				sprintf(nbufCol, "%s,%s", nbufCol, pTab->aCol[i].zName);
+				sprintf(obufCol, "%s,%s", obufCol, pTab->aCol[i].zName);
+			}
+			j++;
+		}
+		else {
+			if (j == 0) {
+				sprintf(nbufCol, "%s%s", nbufCol, nCol);
+				sprintf(obufCol, "%s%s", obufCol, oColsub);
+			}
+			else {
+				sprintf(nbufCol, "%s,%s", nbufCol, nCol);
+				sprintf(obufCol, "%s,%s", obufCol, oColsub);
+			}
+			j++;
+		}
+
+	}
+
+	/* Begin a transaction for database iDb.
+	** Then modify the schema cookie (since the ALTER TABLE modifies the
+	** schema). Open a statement transaction if the table is a virtual
+	** table.
+	*/
+	iDb = sqlite3SchemaToIndex(db, pTab->pSchema);
+	v = sqlite3GetVdbe(pParse);
+	if (v == 0){
+		goto exit_rename_column2;
+	}
+	sqlite3BeginWriteOperation(pParse, 0, iDb);
+	sqlite3ChangeCookie(pParse, iDb);
+
+
+	sqlite3NestedParse(pParse,
+		"UPDATE main.sqlite_master SET sql = 'CREATE TABLE %s(%s)' WHERE tbl_name=%Q;",
+		pTab->zName, nbufCol, pTab->zName
+		);
+	printf("UPDATE main.sqlite_master SET sql = 'CREATE TABLE %s(%s)' WHERE tbl_name=%s;",
+		pTab->zName, nbufCol, pTab->zName);
+
+
+	/* Drop and reload the internal table schema. */
+	reloadTableSchema(pParse, pTab, pTab->zName);
+
+exit_rename_column2:
+	sqlite3SrcListDelete(db, pSrc);
+
 	return;
 }
 #endif  /* SQLITE_ALTER_TABLE */
