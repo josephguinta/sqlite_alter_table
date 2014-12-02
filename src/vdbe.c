@@ -3040,7 +3040,14 @@ case OP_Transaction: {
     iGen = iMeta = 0;
   }
   assert( pOp->p5==0 || pOp->p4type==P4_INT32 );
-  if( pOp->p5 && (iMeta!=pOp->p3 || iGen!=pOp->p4.i) ){
+
+  int drop = 0;
+  //printf("p->zSql = %s", p->zSql);
+  if (p->zSql != NULL)
+	  if (strstr(p->zSql, "DROP COLUMN") != NULL || strstr(p->zSql, "drop column") != NULL) drop = 1;
+
+  if (pOp->p5 && !drop && (iMeta != pOp->p3 || iGen != pOp->p4.i)){
+
     sqlite3DbFree(db, p->zErrMsg);
     p->zErrMsg = sqlite3DbStrDup(db, "database schema has changed");
     /* If the schema-cookie from the database file matches the cookie 

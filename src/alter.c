@@ -900,8 +900,8 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	int j = 0;
 	for (i = 0; i< (pTab->nCol); i++) {
 		if (strcmp(pTab->aCol[i].zName, zCol) != 0) {
-			if (j == 0) sprintf(bufCol, "%s%s", bufCol, pTab->aCol[i].zName);
-			else sprintf(bufCol, "%s,%s", bufCol, pTab->aCol[i].zName);
+			if (j == 0) sprintf(bufCol, "%s%s %s", bufCol, pTab->aCol[i].zName, pTab->aCol[i].zType);
+			else sprintf(bufCol, "%s,%s %s", bufCol, pTab->aCol[i].zName, pTab->aCol[i].zType);
 			j++;		
 		}
 		
@@ -1001,7 +1001,7 @@ void sqlite3AlterDropColumn2(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	Column *pCol;             /* The new column */
 	Expr *pDflt;              /* Default value for the new column */
 
-
+	printf("colUsed = %d\n", pSrc->a[0].colUsed);
 	/* Look up the table being altered. */
 	assert(pParse->pNewTable == 0);
 	assert(sqlite3BtreeHoldsAllMutexes(db));
@@ -1043,11 +1043,11 @@ void sqlite3AlterDropColumn2(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	int j = 0;
 	for (i = 0; i< (pTab->nCol); i++) {
 		if (strcmp(pTab->aCol[i].zName, zCol) != 0) {
-			if (j == 0) sprintf(bufCol, "%s%s", bufCol, pTab->aCol[i].zName);
-			else sprintf(bufCol, "%s,%s", bufCol, pTab->aCol[i].zName);
+			printf("pTab->aCol[i] = %s\n", pTab->aCol[i].zType);
+			if (j == 0) sprintf(bufCol, "%s%s %s", bufCol, pTab->aCol[i].zName, pTab->aCol[i].zType);
+			else sprintf(bufCol, "%s,%s %s", bufCol, pTab->aCol[i].zName, pTab->aCol[i].zType);
 			j++;
 		}
-
 	}
 	Db *pDb;
 	pDb = &db->aDb[iDb];
@@ -1143,23 +1143,23 @@ void sqlite3AlterRenameColumn(Parse *pParse, SrcList *pSrc, Token *pOColDef, Tok
 		printf("ptab.ACOL =%s\n", pTab->aCol[i].zName);
 		if (strcmp(pTab->aCol[i].zName, oColsub) != 0) {
 			if (j == 0) {
-				sprintf(nbufCol, "%s%s", nbufCol, pTab->aCol[i].zName);
-				sprintf(obufCol, "%s%s", obufCol, pTab->aCol[i].zName);
+				sprintf(nbufCol, "%s%s %s", nbufCol, pTab->aCol[i].zName, pTab->aCol[i].zType);
+				sprintf(obufCol, "%s%s %s", obufCol, pTab->aCol[i].zName, pTab->aCol[i].zType);
 			}
 			else {
-				sprintf(nbufCol, "%s,%s", nbufCol, pTab->aCol[i].zName);
-				sprintf(obufCol, "%s,%s", obufCol, pTab->aCol[i].zName);
+				sprintf(nbufCol, "%s,%s %s", nbufCol, pTab->aCol[i].zName, pTab->aCol[i].zType);
+				sprintf(obufCol, "%s,%s %s", obufCol, pTab->aCol[i].zName, pTab->aCol[i].zType);
 			}
 			j++;
 		}
 		else {
 			if (j == 0) {
-				sprintf(nbufCol, "%s%s", nbufCol, nCol);
-				sprintf(obufCol, "%s%s", obufCol, oColsub);
+				sprintf(nbufCol, "%s%s %s", nbufCol, nCol, pTab->aCol[i].zType);
+				sprintf(obufCol, "%s%s %s", obufCol, oColsub, pTab->aCol[i].zType);
 			}
 			else {
-				sprintf(nbufCol, "%s,%s", nbufCol, nCol);
-				sprintf(obufCol, "%s,%s", obufCol, oColsub);
+				sprintf(nbufCol, "%s,%s %s", nbufCol, nCol, pTab->aCol[i].zType);
+				sprintf(obufCol, "%s,%s %s", obufCol, oColsub, pTab->aCol[i].zType);
 			}
 			j++;
 		}
@@ -1317,23 +1317,23 @@ void sqlite3AlterRenameColumn2(Parse *pParse, SrcList *pSrc, Token *pOColDef, To
 		printf("ptab.ACOL =%s\n", pTab->aCol[i].zName);
 		if (strcmp(pTab->aCol[i].zName, oColsub) != 0) {
 			if (j == 0) {
-				sprintf(nbufCol, "%s%s", nbufCol, pTab->aCol[i].zName);
-				sprintf(obufCol, "%s%s", obufCol, pTab->aCol[i].zName);
+				sprintf(nbufCol, "%s%s %s", nbufCol, pTab->aCol[i].zName, pTab->aCol[i].zType);
+				sprintf(obufCol, "%s%s %s", obufCol, pTab->aCol[i].zName, pTab->aCol[i].zType);
 			}
 			else {
-				sprintf(nbufCol, "%s,%s", nbufCol, pTab->aCol[i].zName);
-				sprintf(obufCol, "%s,%s", obufCol, pTab->aCol[i].zName);
+				sprintf(nbufCol, "%s,%s %s", nbufCol, pTab->aCol[i].zName, pTab->aCol[i].zType);
+				sprintf(obufCol, "%s,%s %s", obufCol, pTab->aCol[i].zName, pTab->aCol[i].zType);
 			}
 			j++;
 		}
 		else {
 			if (j == 0) {
-				sprintf(nbufCol, "%s%s", nbufCol, nCol);
-				sprintf(obufCol, "%s%s", obufCol, oColsub);
+				sprintf(nbufCol, "%s%s %s", nbufCol, nCol, pTab->aCol[i].zType);
+				sprintf(obufCol, "%s%s %s", obufCol, oColsub, pTab->aCol[i].zType);
 			}
 			else {
-				sprintf(nbufCol, "%s,%s", nbufCol, nCol);
-				sprintf(obufCol, "%s,%s", obufCol, oColsub);
+				sprintf(nbufCol, "%s,%s %s", nbufCol, nCol, pTab->aCol[i].zType);
+				sprintf(obufCol, "%s,%s %s", obufCol, oColsub, pTab->aCol[i].zType);
 			}
 			j++;
 		}
