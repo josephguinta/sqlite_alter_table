@@ -1435,7 +1435,7 @@ cmd ::= ALTER TABLE fullname(X) DROP kwcolumn_opt column(Y). {
 }
 
 cmd ::= ALTER TABLE fullname(X) RENAME kwcolumn_opt column(Y) TO column(Z). {
-	printf("ALTER RENAME COL\n");
+	//printf("ALTER RENAME COL\n");
 	sqlite3AlterRenameColumn2(pParse, X, &Y, &Z);
 }
 

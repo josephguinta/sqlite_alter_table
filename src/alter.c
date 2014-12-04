@@ -951,22 +951,22 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	#if !defined(SQLITE_OMIT_FOREIGN_KEY) && !defined(SQLITE_OMIT_TRIGGER)
 		if (db->flags&SQLITE_ForeignKeys){
 			FKey *p;
-			printf("%s\n", zCol);
+		//	printf("%s\n", zCol);
 			int i = 1;
 			for (p = sqlite3FkReferences(pTab); p; p = p->pNextTo) { //Iterate through all the foreign keys on the *pTab table
-				printf("Iterating through the %d th foreign key\n", i++);
+			//	printf("Iterating through the %d th foreign key\n", i++);
 				for (int iCol = 0; iCol<p->nCol; iCol++) { //Iterate through each column of the foreign key *p
-					printf("The column in the foreign key is: %s\n", p->aCol[iCol].zCol);
+			//		printf("The column in the foreign key is: %s\n", p->aCol[iCol].zCol);
 					if (sqlite3StrICmp(p->aCol[iCol].zCol, zCol) == 0) { //Check if the ith column's name matches the parsed column name that we are dropping
-						printf("Found a match\n");
+			//			printf("Found a match\n");
 						//They match, so remove the column from the foreign key if there is multiple columns in the foreign key, otherwise if there is just one column, drop the foreign key entirely
 						sqlite3DropForeignKey(p->pFrom, p, db);
-						printf("dropped the foreign key\n");
+				//		printf("dropped the foreign key\n");
 						FKey *pFKey;
 						Table *pFrom = p->pFrom;
-						printf("Showing the foreign keys in child table\n");
+				//		printf("Showing the foreign keys in child table\n");
 						for (pFKey = pFrom->pFKey; pFKey; pFKey = pFKey->pNextFrom){
-							printf("%s\n", pFKey->zTo);
+				//			printf("%s\n", pFKey->zTo);
 						}
 					}
 				}
@@ -1013,7 +1013,7 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 		sqlite3_free(zErrMsg);
 	}
 	else {
-		fprintf(stdout, "Table created successfully\n");
+	//	fprintf(stdout, "Table created successfully\n");
 	}
 
 	//Insert data into temp table
@@ -1024,7 +1024,7 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 		sqlite3_free(zErrMsg);
 	}
 	else {
-		fprintf(stdout, "Insert into temp completed\n");
+	//	fprintf(stdout, "Insert into temp completed\n");
 	}
 
 	//Drop original table
@@ -1035,7 +1035,7 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 		sqlite3_free(zErrMsg);
 	}
 	else {
-		fprintf(stdout, "Old Table dropped\n");
+	//	fprintf(stdout, "Old Table dropped\n");
 	}
 
 	//Recreate without the dropped column
@@ -1046,7 +1046,7 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 		sqlite3_free(zErrMsg);
 	}
 	else {
-		fprintf(stdout, "Table recreated\n");
+	//	fprintf(stdout, "Table recreated\n");
 	}
 
 	//Return data to original table
@@ -1057,7 +1057,7 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 		sqlite3_free(zErrMsg);
 	}
 	else {
-		fprintf(stdout, "Insert into recreated successful\n");
+	//	fprintf(stdout, "Insert into recreated successful\n");
 	}
 
 	//Drop the temporary table
@@ -1068,7 +1068,7 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 		sqlite3_free(zErrMsg);
 	}
 	else {
-		fprintf(stdout, "Temp table dropped\n");
+	//	fprintf(stdout, "Temp table dropped\n");
 	}
 
 exit_drop_column:
