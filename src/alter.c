@@ -976,16 +976,25 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 
 	//Reconstruct the new column list (with types and not null if applicable) WITHOUT the column to be dropped
 	char bufCol[256] = "";
+	char bufColnn[256] = "";
 	int j = 0;
 	for (i = 0; i< (pTab->nCol); i++) {
 		if (strcmp(pTab->aCol[i].zName, zCol) != 0) {
-			if (j == 0) sprintf(bufCol, "%s%s %s%s", bufCol, pTab->aCol[i].zName,
-				(pTab->aCol[i].zType != NULL) ? pTab->aCol[i].zType : "", (pTab->aCol[i].notNull)? " not null" : "");
-			else sprintf(bufCol, "%s,%s %s%s", bufCol, pTab->aCol[i].zName, 
-				(pTab->aCol[i].zType != NULL)? pTab->aCol[i].zType : "", (pTab->aCol[i].notNull)? " not null" : "");
+			if (j == 0) {
+				sprintf(bufCol, "%s%s %s%s", bufCol, pTab->aCol[i].zName,
+					(pTab->aCol[i].zType != NULL) ? pTab->aCol[i].zType : "", (pTab->aCol[i].notNull) ? " not null" : "");
+				sprintf(bufColnn, "%s%s", bufColnn, pTab->aCol[i].zName);
+			}
+			else {
+				sprintf(bufCol, "%s,%s %s%s", bufCol, pTab->aCol[i].zName,
+					(pTab->aCol[i].zType != NULL) ? pTab->aCol[i].zType : "", (pTab->aCol[i].notNull) ? " not null" : "");
+				sprintf(bufColnn, "%s,%s", bufColnn, pTab->aCol[i].zName);
+			}
 			j++;		
 		}
 	}
+	//printf("%s\n", bufCol);
+	//printf("%s\n", bufColnn);
 	
 	//Didn't find the column...
 	if (j == 0) {
@@ -1006,18 +1015,18 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	int  rc;
 	
 	//Create a dummy table without dropped column
-	char *sql = sqlite3MPrintf(db, "CREATE TEMPORARY TABLE %s(%s);", tempName, bufCol);
+	char *sql = sqlite3MPrintf(db, "CREATE TABLE %s(%s);", tempName, bufCol);
 	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
 	if (rc != SQLITE_OK){
 		fprintf(stderr, "SQL error: %s\n", zErrMsg);
 		sqlite3_free(zErrMsg);
 	}
 	else {
-	//	fprintf(stdout, "Table created successfully\n");
+		//fprintf(stdout, "Table created successfully\n");
 	}
 
 	//Insert data into temp table
-	sql = sqlite3MPrintf(db, "INSERT INTO %s SELECT %s FROM %s;", tempName, bufCol, oldName);
+	sql = sqlite3MPrintf(db, "INSERT INTO %s SELECT %s FROM %s;", tempName, bufColnn, oldName);
 	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
 	if (rc != SQLITE_OK){
 		fprintf(stderr, "SQL error: %s\n", zErrMsg);
@@ -1050,7 +1059,7 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	}
 
 	//Return data to original table
-	sql = sqlite3MPrintf(db, "INSERT INTO %s SELECT %s FROM %s;", oldName, bufCol, tempName);
+	sql = sqlite3MPrintf(db, "INSERT INTO %s SELECT %s FROM %s;", oldName, bufColnn, tempName);
 	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
 	if (rc != SQLITE_OK){
 		fprintf(stderr, "SQL error: %s\n", zErrMsg);
