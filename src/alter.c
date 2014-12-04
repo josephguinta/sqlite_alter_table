@@ -881,6 +881,32 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 		}
 	}
 
+	#if !defined(SQLITE_OMIT_FOREIGN_KEY) && !defined(SQLITE_OMIT_TRIGGER)
+		if (db->flags&SQLITE_ForeignKeys){
+			FKey *p;
+			printf("%s\n", zCol);
+			int i = 1;
+			for (p = sqlite3FkReferences(pTab); p; p = p->pNextTo) { //Iterate through all the foreign keys on the *pTab table
+				printf("Iterating through the %d th foreign key\n", i++);
+				for (int iCol = 0; iCol<p->nCol; iCol++) { //Iterate through each column of the foreign key *p
+					printf("The column in the foreign key is: %s\n", p->aCol[iCol].zCol);
+					if (sqlite3StrICmp(p->aCol[iCol].zCol, zCol) == 0) { //Check if the ith column's name matches the parsed column name that we are dropping
+						printf("Found a match\n");
+						//They match, so remove the column from the foreign key if there is multiple columns in the foreign key, otherwise if there is just one column, drop the foreign key entirely
+						sqlite3DropForeignKey(p->pFrom, p, db);
+						printf("dropped the foreign key\n");
+						FKey *pFKey;
+						Table *pFrom = p->pFrom;
+						printf("Showing the foreign keys in child table\n");
+						for (pFKey = pFrom->pFKey; pFKey; pFKey = pFKey->pNextFrom){
+							printf("%s\n", pFKey->zTo);
+						}
+					}
+				}
+			}
+		}
+	#endif
+
 	char bufCol[256] = "";
 	int j = 0;
 	for (i = 0; i< (pTab->nCol); i++) {
