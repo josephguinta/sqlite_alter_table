@@ -4,15 +4,15 @@
 This repository includes changes to src/alter.c and parse.y in order to implement
 drop column and rename column. 
 
-In drop column:
-	Data types are preserved
-	Indexes and keys on the table are dropped.
+In drop column:\n
+	Data types are preserved\n
+	Indexes and keys on the table are dropped\n
 
-In rename column:
-	Data types are preserved
-	Foreign keys referencing a dropped column are dropped. 
-	Primary keys are dropped
-	Indexes referencing a renamed column are updated.
+In rename column:\n
+	Data types are preserved\n
+	Foreign keys referencing a dropped column are dropped\n
+	Primary keys are dropped\n
+	Indexes referencing a renamed column are updated\n
 
 
 <h2 align="center">************* ORIGINAL README ***************</h2>
