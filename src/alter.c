@@ -516,21 +516,6 @@ void sqlite3AlterRenameTable(
 #endif
 
   /* Modify the sqlite_master table to use the new table name. */
-  printf("UPDATE %s.%s SET "
-	  "sql = CASE "
-	  "WHEN type = 'trigger' THEN sqlite_rename_trigger(sql, %s)"
-	  "ELSE sqlite_rename_table(sql, %s) END, "
-	  "tbl_name = %s, "
-	  "name = CASE \n"
-	  "WHEN type='table' THEN %s "
-	  "WHEN name LIKE 'sqlite_autoindex%%' AND type='index' THEN "
-	  "'sqlite_autoindex_' || %s || substr(name,%d+18) "
-	  "ELSE name END \n"
-	  "WHERE tbl_name=%s COLLATE nocase AND "
-	  "(type='table' OR type='index' OR type='trigger');\n",
-	  zDb, SCHEMA_TABLE(iDb), zName, zName, zName,
-	  zName,
-	  zName, nTabName, zTabName);
 
   sqlite3NestedParse(pParse,
       "UPDATE %Q.%s SET "
@@ -843,28 +828,28 @@ exit_begin_add_column:
 }
 
 void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
-	Table *pNew;
 	Table *pTab;
 	Vdbe *v;
 	int iDb;
 	int i;
-	int nAlloc;
 	sqlite3 *db = pParse->db;
-
-	
-	const char *zDb;          /* Database name */
-	const char *zTab;         /* Table name */
 	char *zCol;               /* Null-terminated column definition */
-	Column *pCol;             /* The new column */
-	Expr *pDflt;              /* Default value for the new column */
-	
-	
+
 	/* Look up the table being altered. */
 	assert(pParse->pNewTable == 0);
 	assert(sqlite3BtreeHoldsAllMutexes(db));
 	if (db->mallocFailed) goto exit_drop_column;
 	pTab = sqlite3LocateTableItem(pParse, 0, &pSrc->a[0]);
 	if (!pTab) goto exit_drop_column;
+
+	//Do not allow a column to be dropped if there is only one column left
+	if (pTab->nCol <= 1) {
+		sqlite3ErrorMsg(pParse, "Cannot drop all columns of a table");
+		goto exit_drop_column;
+	}
+
+
+
 
 #ifndef SQLITE_OMIT_VIRTUALTABLE
 		if (IsVirtual(pTab)){
@@ -881,12 +866,12 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	if (SQLITE_OK != isSystemTable(pParse, pTab->zName)){
 		goto exit_drop_column;
 	}
-	printf("%s\n", pTab->zName);
 
 	iDb = sqlite3SchemaToIndex(db, pTab->pSchema);
 	char* oldName = sqlite3MPrintf(db, "%s", pTab->zName);
 	char* tempName = sqlite3MPrintf(db, "old_%s", pTab->zName);
 
+	//Get a null terminated string of the column to be dropped
 	zCol = sqlite3DbStrNDup(db, (char*)pColDef->z, pColDef->n);
 	if (zCol){
 		char *zEnd = &zCol[pColDef->n - 1];
@@ -900,15 +885,22 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	int j = 0;
 	for (i = 0; i< (pTab->nCol); i++) {
 		if (strcmp(pTab->aCol[i].zName, zCol) != 0) {
-			if (j == 0) sprintf(bufCol, "%s%s %s", bufCol, pTab->aCol[i].zName, pTab->aCol[i].zType);
-			else sprintf(bufCol, "%s,%s %s", bufCol, pTab->aCol[i].zName, pTab->aCol[i].zType);
+			if (j == 0) sprintf(bufCol, "%s%s %s%s", bufCol, pTab->aCol[i].zName,
+				(pTab->aCol[i].zType != NULL) ? pTab->aCol[i].zType : "", (pTab->aCol[i].notNull)? " not null" : "");
+			else sprintf(bufCol, "%s,%s %s%s", bufCol, pTab->aCol[i].zName, 
+				(pTab->aCol[i].zType != NULL)? pTab->aCol[i].zType : "", (pTab->aCol[i].notNull)? " not null" : "");
 			j++;		
 		}
-		
 	}
+	if (j == 0) {
+		sqlite3ErrorMsg(pParse, "Column not found");
+		goto exit_drop_column;
+	}
+
 	Db *pDb;
 	pDb = &db->aDb[iDb];
 	
+	//Begin a Transaction
 	sqlite3BeginWriteOperation(pParse, 0, iDb);
 	v = sqlite3GetVdbe(pParse);
 	if (!v) goto exit_drop_column;
@@ -916,8 +908,8 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 
 	char *zErrMsg = 0;
 	int  rc;
+	
 	char *sql = sqlite3MPrintf(db, "CREATE TABLE %s(%s);", tempName, bufCol);
-	printf("%s\n", sql);
 	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
 	if (rc != SQLITE_OK){
 		fprintf(stderr, "SQL error: %s\n", zErrMsg);
@@ -927,7 +919,6 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 		fprintf(stdout, "Table created successfully\n");
 	}
 	sql = sqlite3MPrintf(db, "INSERT INTO %s SELECT %s FROM %s;", tempName, bufCol, oldName);
-	printf("%s\n", sql);
 	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
 	if (rc != SQLITE_OK){
 		fprintf(stderr, "SQL error: %s\n", zErrMsg);
@@ -937,7 +928,6 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 		fprintf(stdout, "Insert into temp completed\n");
 	}
 	sql = sqlite3MPrintf(db, "DROP TABLE %s;", oldName);
-	printf("%s\n", sql);
 	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
 	if (rc != SQLITE_OK){
 		fprintf(stderr, "SQL error: %s\n", zErrMsg);
@@ -947,7 +937,6 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 		fprintf(stdout, "Old Table dropped\n");
 	}
 	sql = sqlite3MPrintf(db, "CREATE TABLE %s(%s);", oldName, bufCol);
-	printf("%s\n", sql);
 	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
 	if (rc != SQLITE_OK){
 		fprintf(stderr, "SQL error: %s\n", zErrMsg);
@@ -956,8 +945,7 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	else {
 		fprintf(stdout, "Table recreated\n");
 	}
-	sql = sqlite3MPrintf(db,"INSERT INTO %s SELECT %s FROM %s;", oldName, bufCol, tempName);
-	printf("%s\n", sql);
+	sql = sqlite3MPrintf(db, "INSERT INTO %s SELECT %s FROM %s;", oldName, bufCol, tempName);
 	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
 	if (rc != SQLITE_OK){
 		fprintf(stderr, "SQL error: %s\n", zErrMsg);
@@ -967,7 +955,6 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 		fprintf(stdout, "Insert into recreated successful\n");
 	}
 	sql = sqlite3MPrintf(db, "DROP TABLE %s;", tempName);
-	printf("%s\n", sql);
 	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
 	if (rc != SQLITE_OK){
 		fprintf(stderr, "SQL error: %s\n", zErrMsg);
@@ -976,7 +963,6 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	else {
 		fprintf(stdout, "Temp table dropped\n");
 	}
-	
 
 	//sqlite3_free(sql);
 	
@@ -986,20 +972,13 @@ exit_drop_column:
 }
 
 void sqlite3AlterDropColumn2(Parse *pParse, SrcList *pSrc, Token *pColDef) {
-	Table *pNew;
 	Table *pTab;
 	Vdbe *v;
 	int iDb;
 	int i;
-	int nAlloc;
 	sqlite3 *db = pParse->db;
-
-
-	const char *zDb;          /* Database name */
-	const char *zTab;         /* Table name */
 	char *zCol;               /* Null-terminated column definition */
-	Column *pCol;             /* The new column */
-	Expr *pDflt;              /* Default value for the new column */
+	
 
 	printf("colUsed = %d\n", pSrc->a[0].colUsed);
 	/* Look up the table being altered. */
@@ -1043,9 +1022,9 @@ void sqlite3AlterDropColumn2(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	int j = 0;
 	for (i = 0; i< (pTab->nCol); i++) {
 		if (strcmp(pTab->aCol[i].zName, zCol) != 0) {
-			printf("pTab->aCol[i] = %s\n", pTab->aCol[i].zType);
-			if (j == 0) sprintf(bufCol, "%s%s %s", bufCol, pTab->aCol[i].zName, pTab->aCol[i].zType);
-			else sprintf(bufCol, "%s,%s %s", bufCol, pTab->aCol[i].zName, pTab->aCol[i].zType);
+			printf("pTab->aCol[i] = %s\n", (pTab->aCol[i].zType != NULL)? pTab->aCol[i].zType : "", (pTab->aCol[i].notNull)? " not null" : "");
+			if (j == 0) sprintf(bufCol, "%s%s %s%s", bufCol, pTab->aCol[i].zName, (pTab->aCol[i].zType != NULL)? pTab->aCol[i].zType : "", (pTab->aCol[i].notNull)? " not null" : "");
+			else sprintf(bufCol, "%s,%s %s%s", bufCol, pTab->aCol[i].zName, (pTab->aCol[i].zType != NULL)? pTab->aCol[i].zType : "", (pTab->aCol[i].notNull)? " not null" : "");
 			j++;
 		}
 	}
@@ -1073,17 +1052,12 @@ exit_drop_column2:
 }
 
 void sqlite3AlterRenameColumn(Parse *pParse, SrcList *pSrc, Token *pOColDef, Token *pNColDef) {
-	Table *pNew;
 	Table *pTab;
 	Vdbe *v;
 	int iDb;
 	int i;
-	int nAlloc;
 	sqlite3 *db = pParse->db;
 
-
-	const char *zDb;          /* Database name */
-	const char *zTab;         /* Table name */
 	char *oCol;               /* Null-terminated column definition */
 	char *nCol;
 
@@ -1110,7 +1084,6 @@ void sqlite3AlterRenameColumn(Parse *pParse, SrcList *pSrc, Token *pOColDef, Tok
 	if (SQLITE_OK != isSystemTable(pParse, pTab->zName)){
 		goto exit_rename_column;
 	}
-	printf("%s\n", pTab->zName);
 
 	iDb = sqlite3SchemaToIndex(db, pTab->pSchema);
 	
@@ -1139,33 +1112,33 @@ void sqlite3AlterRenameColumn(Parse *pParse, SrcList *pSrc, Token *pOColDef, Tok
 	char obufCol[256] = "";
 	int j = 0;
 	for (i = 0; i< (pTab->nCol); i++) {
-		printf("oCol = %s\n", oColsub);
-		printf("ptab.ACOL =%s\n", pTab->aCol[i].zName);
 		if (strcmp(pTab->aCol[i].zName, oColsub) != 0) {
 			if (j == 0) {
-				sprintf(nbufCol, "%s%s %s", nbufCol, pTab->aCol[i].zName, pTab->aCol[i].zType);
-				sprintf(obufCol, "%s%s %s", obufCol, pTab->aCol[i].zName, pTab->aCol[i].zType);
+				sprintf(nbufCol, "%s%s %s%s", nbufCol, pTab->aCol[i].zName, 
+					(pTab->aCol[i].zType != NULL)? pTab->aCol[i].zType : "", (pTab->aCol[i].notNull)? " not null" : "");
+				sprintf(obufCol, "%s%s %s%s", obufCol, pTab->aCol[i].zName, 
+					(pTab->aCol[i].zType != NULL)? pTab->aCol[i].zType : "", (pTab->aCol[i].notNull)? " not null" : "");
 			}
 			else {
-				sprintf(nbufCol, "%s,%s %s", nbufCol, pTab->aCol[i].zName, pTab->aCol[i].zType);
-				sprintf(obufCol, "%s,%s %s", obufCol, pTab->aCol[i].zName, pTab->aCol[i].zType);
+				sprintf(nbufCol, "%s,%s %s%s", nbufCol, pTab->aCol[i].zName, (pTab->aCol[i].zType != NULL)? pTab->aCol[i].zType : "", (pTab->aCol[i].notNull)? " not null" : "");
+				sprintf(obufCol, "%s,%s %s%s", obufCol, pTab->aCol[i].zName, (pTab->aCol[i].zType != NULL)? pTab->aCol[i].zType : "", (pTab->aCol[i].notNull)? " not null" : "");
 			}
 			j++;
 		}
 		else {
 			if (j == 0) {
-				sprintf(nbufCol, "%s%s %s", nbufCol, nCol, pTab->aCol[i].zType);
-				sprintf(obufCol, "%s%s %s", obufCol, oColsub, pTab->aCol[i].zType);
+				sprintf(nbufCol, "%s%s %s%s", nbufCol, nCol, (pTab->aCol[i].zType != NULL)? pTab->aCol[i].zType : "", (pTab->aCol[i].notNull)? " not null" : "");
+				sprintf(obufCol, "%s%s %s%s", obufCol, oColsub, (pTab->aCol[i].zType != NULL)? pTab->aCol[i].zType : "", (pTab->aCol[i].notNull)? " not null" : "");
 			}
 			else {
-				sprintf(nbufCol, "%s,%s %s", nbufCol, nCol, pTab->aCol[i].zType);
-				sprintf(obufCol, "%s,%s %s", obufCol, oColsub, pTab->aCol[i].zType);
+				sprintf(nbufCol, "%s,%s %s%s", nbufCol, nCol, (pTab->aCol[i].zType != NULL)? pTab->aCol[i].zType : "", (pTab->aCol[i].notNull)? " not null" : "");
+				sprintf(obufCol, "%s,%s %s%s", obufCol, oColsub, (pTab->aCol[i].zType != NULL)? pTab->aCol[i].zType : "", (pTab->aCol[i].notNull)? " not null" : "");
 			}
 			j++;
 		}
 
 	}
-	printf("nCol = %s\n", nbufCol); printf("oColsub = %s\n", obufCol);
+	
 	Db *pDb;
 	pDb = &db->aDb[iDb];
 
@@ -1180,7 +1153,6 @@ void sqlite3AlterRenameColumn(Parse *pParse, SrcList *pSrc, Token *pOColDef, Tok
 	char *zErrMsg = 0;
 	int  rc;
 	char *sql = sqlite3MPrintf(db, "CREATE TABLE %s(%s);", tempName, nbufCol);
-	printf("%s\n", sql);
 	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
 	if (rc != SQLITE_OK){
 		fprintf(stderr, "SQL error: %s\n", zErrMsg);
@@ -1190,7 +1162,6 @@ void sqlite3AlterRenameColumn(Parse *pParse, SrcList *pSrc, Token *pOColDef, Tok
 		fprintf(stdout, "Table created successfully\n");
 	}
 	sql = sqlite3MPrintf(db, "INSERT INTO %s(%s) SELECT %s FROM %s;", tempName, nbufCol, obufCol, oldName);
-	printf("%s\n", sql);
 	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
 	if (rc != SQLITE_OK){
 		fprintf(stderr, "SQL error: %s\n", zErrMsg);
@@ -1210,7 +1181,6 @@ void sqlite3AlterRenameColumn(Parse *pParse, SrcList *pSrc, Token *pOColDef, Tok
 		fprintf(stdout, "Old Table dropped\n");
 	}
 	sql = sqlite3MPrintf(db, "CREATE TABLE %s(%s);", oldName, nbufCol);
-	printf("%s\n", sql);
 	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
 	if (rc != SQLITE_OK){
 		fprintf(stderr, "SQL error: %s\n", zErrMsg);
@@ -1220,7 +1190,6 @@ void sqlite3AlterRenameColumn(Parse *pParse, SrcList *pSrc, Token *pOColDef, Tok
 		fprintf(stdout, "Table recreated\n");
 	}
 	sql = sqlite3MPrintf(db, "INSERT INTO %s SELECT %s FROM %s;", oldName, nbufCol, tempName);
-	printf("%s\n", sql);
 	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
 	if (rc != SQLITE_OK){
 		fprintf(stderr, "SQL error: %s\n", zErrMsg);
@@ -1230,7 +1199,6 @@ void sqlite3AlterRenameColumn(Parse *pParse, SrcList *pSrc, Token *pOColDef, Tok
 		fprintf(stdout, "Insert into recreated successful\n");
 	}
 	sql = sqlite3MPrintf(db, "DROP TABLE %s;", tempName);
-	printf("%s\n", sql);
 	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
 	if (rc != SQLITE_OK){
 		fprintf(stderr, "SQL error: %s\n", zErrMsg);
@@ -1239,9 +1207,7 @@ void sqlite3AlterRenameColumn(Parse *pParse, SrcList *pSrc, Token *pOColDef, Tok
 	else {
 		fprintf(stdout, "Temp table dropped\n");
 	}
-
-
-	//sqlite3_free(sql);
+	
 
 exit_rename_column:
 	sqlite3SrcListDelete(db, pSrc);
@@ -1249,20 +1215,11 @@ exit_rename_column:
 }
 
 void sqlite3AlterRenameColumn2(Parse *pParse, SrcList *pSrc, Token *pOColDef, Token *pNColDef) {
-	Table *pNew;
 	Table *pTab;
 	Vdbe *v;
 	int iDb;
 	int i;
-	int nAlloc;
 	sqlite3 *db = pParse->db;
-
-
-	const char *zDb;          /* Database name */
-	const char *zTab;         /* Table name */
-	char *zCol;               /* Null-terminated column definition */
-	Column *pCol;             /* The new column */
-	Expr *pDflt;              /* Default value for the new column */
 	char* oCol; char* nCol;
 
 	/* Look up the table being altered. */
@@ -1313,27 +1270,25 @@ void sqlite3AlterRenameColumn2(Parse *pParse, SrcList *pSrc, Token *pOColDef, To
 	char obufCol[256] = "";
 	int j = 0;
 	for (i = 0; i< (pTab->nCol); i++) {
-		printf("oCol = %s\n", oColsub);
-		printf("ptab.ACOL =%s\n", pTab->aCol[i].zName);
 		if (strcmp(pTab->aCol[i].zName, oColsub) != 0) {
 			if (j == 0) {
-				sprintf(nbufCol, "%s%s %s", nbufCol, pTab->aCol[i].zName, pTab->aCol[i].zType);
-				sprintf(obufCol, "%s%s %s", obufCol, pTab->aCol[i].zName, pTab->aCol[i].zType);
+				sprintf(nbufCol, "%s%s %s%s", nbufCol, pTab->aCol[i].zName, (pTab->aCol[i].zType != NULL)? pTab->aCol[i].zType : "", (pTab->aCol[i].notNull)? " not null" : "");
+				sprintf(obufCol, "%s%s %s%s", obufCol, pTab->aCol[i].zName, (pTab->aCol[i].zType != NULL)? pTab->aCol[i].zType : "", (pTab->aCol[i].notNull)? " not null" : "");
 			}
 			else {
-				sprintf(nbufCol, "%s,%s %s", nbufCol, pTab->aCol[i].zName, pTab->aCol[i].zType);
-				sprintf(obufCol, "%s,%s %s", obufCol, pTab->aCol[i].zName, pTab->aCol[i].zType);
+				sprintf(nbufCol, "%s,%s %s%s", nbufCol, pTab->aCol[i].zName, (pTab->aCol[i].zType != NULL)? pTab->aCol[i].zType : "", (pTab->aCol[i].notNull)? " not null" : "");
+				sprintf(obufCol, "%s,%s %s%s", obufCol, pTab->aCol[i].zName, (pTab->aCol[i].zType != NULL)? pTab->aCol[i].zType : "", (pTab->aCol[i].notNull)? " not null" : "");
 			}
 			j++;
 		}
 		else {
 			if (j == 0) {
-				sprintf(nbufCol, "%s%s %s", nbufCol, nCol, pTab->aCol[i].zType);
-				sprintf(obufCol, "%s%s %s", obufCol, oColsub, pTab->aCol[i].zType);
+				sprintf(nbufCol, "%s%s %s%s", nbufCol, nCol, (pTab->aCol[i].zType != NULL)? pTab->aCol[i].zType : "", (pTab->aCol[i].notNull)? " not null" : "");
+				sprintf(obufCol, "%s%s %s%s", obufCol, oColsub, (pTab->aCol[i].zType != NULL)? pTab->aCol[i].zType : "", (pTab->aCol[i].notNull)? " not null" : "");
 			}
 			else {
-				sprintf(nbufCol, "%s,%s %s", nbufCol, nCol, pTab->aCol[i].zType);
-				sprintf(obufCol, "%s,%s %s", obufCol, oColsub, pTab->aCol[i].zType);
+				sprintf(nbufCol, "%s,%s %s%s", nbufCol, nCol, (pTab->aCol[i].zType != NULL)? pTab->aCol[i].zType : "", (pTab->aCol[i].notNull)? " not null" : "");
+				sprintf(obufCol, "%s,%s %s%s", obufCol, oColsub, (pTab->aCol[i].zType != NULL)? pTab->aCol[i].zType : "", (pTab->aCol[i].notNull)? " not null" : "");
 			}
 			j++;
 		}
@@ -1358,10 +1313,8 @@ void sqlite3AlterRenameColumn2(Parse *pParse, SrcList *pSrc, Token *pOColDef, To
 		"UPDATE main.sqlite_master SET sql = 'CREATE TABLE %s(%s)' WHERE tbl_name=%Q;",
 		pTab->zName, nbufCol, pTab->zName
 		);
-	printf("UPDATE main.sqlite_master SET sql = 'CREATE TABLE %s(%s)' WHERE tbl_name=%s;",
-		pTab->zName, nbufCol, pTab->zName);
-
-
+	
+	
 	/* Drop and reload the internal table schema. */
 	reloadTableSchema(pParse, pTab, pTab->zName);
 
