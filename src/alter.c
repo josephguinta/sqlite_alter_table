@@ -827,6 +827,68 @@ exit_begin_add_column:
   return;
 }
 
+/*
+** The second argument is a Trigger structure allocated by the
+** fkActionTrigger() routine. This function deletes the Trigger structure
+** and all of its sub-components.
+**
+** The Trigger structure or any of its sub-components may be allocated from
+** the lookaside buffer belonging to database handle dbMem.
+*/
+static void myFkTriggerDelete(sqlite3 *dbMem, Trigger *p){
+	if (p){
+		TriggerStep *pStep = p->step_list;
+		sqlite3ExprDelete(dbMem, pStep->pWhere);
+		sqlite3ExprListDelete(dbMem, pStep->pExprList);
+		sqlite3SelectDelete(dbMem, pStep->pSelect);
+		sqlite3ExprDelete(dbMem, p->pWhen);
+		sqlite3DbFree(dbMem, p);
+	}
+}
+
+static void sqlite3DropForeignKey(Table *pTab, FKey *p, sqlite3 *db) {
+	assert(db == 0 || sqlite3SchemaMutexHeld(db, 0, pTab->pSchema));
+	FKey *newPFKey = NULL;
+	if (!db || db->pnBytesFreed == 0){
+		if (p->pPrevTo){
+			newPFKey = p->pPrevTo;
+		}
+		else{
+			void *pData = (void *)p->pNextTo;
+			const char *z = (pData ? p->pNextTo->zTo : p->zTo);
+			newPFKey = (FKey *)sqlite3HashInsert(&pTab->pSchema->fkeyHash, z, pData);
+			if (newPFKey == p){
+				newPFKey = NULL;
+			}
+		}
+		if (p->pNextTo){
+			if (newPFKey) {
+				FKey *pNextTo = p->pNextTo;
+				newPFKey->pNextTo = pNextTo;
+				pNextTo->pPrevTo = newPFKey;
+			}
+			else {
+				newPFKey = p->pNextTo;
+				newPFKey->pPrevTo = NULL;
+			}
+		}
+	}
+	pTab->pFKey = newPFKey;
+
+	/* EV: R-30323-21917 Each foreign key constraint in SQLite is
+	** classified as either immediate or deferred.
+	*/
+	assert(p->isDeferred == 0 || p->isDeferred == 1);
+
+	/* Delete any triggers created to implement actions for this FK. */
+#ifndef SQLITE_OMIT_TRIGGER
+	myFkTriggerDelete(db, p->apTrigger[0]);
+	myFkTriggerDelete(db, p->apTrigger[1]);
+#endif
+
+	sqlite3DbFree(db, p);
+}
+
 void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	Table *pTab;
 	Vdbe *v;
