@@ -1432,6 +1432,25 @@ void sqlite3AlterRenameColumn2(Parse *pParse, SrcList *pSrc, Token *pOColDef, To
 	sqlite3BeginWriteOperation(pParse, 0, iDb);
 	sqlite3ChangeCookie(pParse, iDb);
 
+	#if !defined(SQLITE_OMIT_FOREIGN_KEY) && !defined(SQLITE_OMIT_TRIGGER)
+		if (db->flags&SQLITE_ForeignKeys){
+			FKey *p;
+			//	printf("%s\n", zCol);
+			int i = 1;
+			for (p = sqlite3FkReferences(pTab); p; p = p->pNextTo) { //Iterate through all the foreign keys on the *pTab table
+				//	printf("Iterating through the %d th foreign key\n", i++);
+				for (int iCol = 0; iCol<p->nCol; iCol++) { //Iterate through each column of the foreign key *p
+					//		printf("The column in the foreign key is: %s\n", p->aCol[iCol].zCol);
+					if (sqlite3StrICmp(p->aCol[iCol].zCol, oColsub) == 0) { //Check if the ith column's name matches the parsed column name that we are dropping
+						//			printf("Found a match\n");
+						//They match, so remove the column from the foreign key if there is multiple columns in the foreign key, otherwise if there is just one column, drop the foreign key entirely
+						sqlite3DropForeignKey(p->pFrom, p, db);
+					}
+				}
+			}
+		}
+	#endif
+
 	char sqlLikeBuf[256] = "%";
 	sprintf(sqlLikeBuf, "%s%s(%%", sqlLikeBuf, pTab->zName);
 	sprintf(sqlLikeBuf, "%s%s%%)%%", sqlLikeBuf, oColsub); //sqlLikeBuf will come out to look like %tblName(%oldColName%)%, this finds any sql that used our table and the column we are renaming.
@@ -1439,6 +1458,18 @@ void sqlite3AlterRenameColumn2(Parse *pParse, SrcList *pSrc, Token *pOColDef, To
 	sqlite3NestedParse(pParse,
 		"UPDATE main.sqlite_master SET sql = replace(sql, '%s', '%s') WHERE tbl_name=%Q and type = 'index' and sql like '%s';",
 		oColsub, nCol, pTab->zName, sqlLikeBuf
+		);
+
+	//Would need to call create foreign key here with the new column name. Use sqlite3ExprListDup as a reference on how to set up ExprLists.
+	//ExprList *pFromCol = 
+
+	char sqlLikeBuf2[256] = "foreign key%references ";
+	sprintf(sqlLikeBuf2, "%s%s(%%%s%%)%%", sqlLikeBuf2, pTab->zName, oColsub); //%foreign key%references%tblName(%oldColName%)%
+	//printf("sql like: %s\n", sqlLikeBuf2);
+	//Updates the foreign key references to the renamed column in sqlite master. This updates the name of the referencing column in the table as well if it has the same name as the column being renamed.
+	sqlite3NestedParse(pParse,
+		"UPDATE main.sqlite_master SET sql = replace(sql, '%s', '%s') WHERE type = 'table' and sql like '%s';",
+		oColsub, nCol, sqlLikeBuf
 		);
 
 	//Updates the table to reflect the new column name.
