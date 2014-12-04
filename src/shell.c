@@ -152,7 +152,7 @@ static void endTimer(void){
     struct rusage sEnd;
     sqlite3_int64 iEnd = timeOfDay();
     getrusage(RUSAGE_SELF, &sEnd);
-    printf("Run Time: real %.3f user %f sys %f\n",
+    printf("Run Time: real %.9f user %.9f sys %.9f\n",
        (iEnd - iBegin)*0.001,
        timeDiff(&sBegin.ru_utime, &sEnd.ru_utime),
        timeDiff(&sBegin.ru_stime, &sEnd.ru_stime));
