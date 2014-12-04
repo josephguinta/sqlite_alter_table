@@ -1,4 +1,21 @@
-<h1 align="center">SQLite Source Repository</h1>
+<h1 align="center">SQLite Source Repository with Drop/Rename Column</h1>
+
+<h2 align="center">************* Additions to SQLITE *************</h2>
+This repository includes changes to src/alter.c and parse.y in order to implement
+drop column and rename column. 
+
+In drop column:
+	Data types are preserved
+	Indexes and keys on the table are dropped.
+
+In rename column:
+	Data types are preserved
+	Foreign keys referencing a dropped column are dropped. 
+	Primary keys are dropped
+	Indexes referencing a renamed column are updated.
+
+
+<h2 align="center">************* ORIGINAL README ***************</h2>
 
 This repository contains the complete source code for the SQLite database
 engine.  Some test scripts are also include.  However, many other test scripts
