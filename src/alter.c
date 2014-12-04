@@ -1423,12 +1423,20 @@ void sqlite3AlterRenameColumn2(Parse *pParse, SrcList *pSrc, Token *pOColDef, To
 	sqlite3BeginWriteOperation(pParse, 0, iDb);
 	sqlite3ChangeCookie(pParse, iDb);
 
-
+	char sqlLikeBuf[256] = "%";
+	sprintf(sqlLikeBuf, "%s%s(%%", sqlLikeBuf, pTab->zName);
+	sprintf(sqlLikeBuf, "%s%s%%)%%", sqlLikeBuf, oColsub); //sqlLikeBuf will come out to look like %tblName(%oldColName%)%, this finds any sql that used our table and the column we are renaming.
+	//Updates the index to match the new column name.
 	sqlite3NestedParse(pParse,
-		"UPDATE main.sqlite_master SET sql = 'CREATE TABLE %s(%s)' WHERE tbl_name=%Q;",
+		"UPDATE main.sqlite_master SET sql = replace(sql, '%s', '%s') WHERE tbl_name=%Q and type = 'index' and sql like '%s';",
+		oColsub, nCol, pTab->zName, sqlLikeBuf
+		);
+
+	//Updates the table to reflect the new column name.
+	sqlite3NestedParse(pParse,
+		"UPDATE main.sqlite_master SET sql = 'CREATE TABLE %s(%s)' WHERE tbl_name=%Q and type = 'table';",
 		pTab->zName, nbufCol, pTab->zName
 		);
-	
 	
 	/* Drop and reload the internal table schema. */
 	reloadTableSchema(pParse, pTab, pTab->zName);
