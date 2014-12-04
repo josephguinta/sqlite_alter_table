@@ -889,6 +889,14 @@ static void sqlite3DropForeignKey(Table *pTab, FKey *p, sqlite3 *db) {
 	sqlite3DbFree(db, p);
 }
 
+/*
+* USAGE: ALTER TABLE xxx DROP COLUMN colname
+*
+* Warning: Drops all indexes, pkey, fkeys, triggers, constraints on table
+*		Maintains data types, including not null constraint
+* Drop one column at a type. Built as proof of concept.
+*/
+
 void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	Table *pTab;
 	Vdbe *v;
@@ -909,9 +917,6 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 		sqlite3ErrorMsg(pParse, "Cannot drop all columns of a table");
 		goto exit_drop_column;
 	}
-
-
-
 
 #ifndef SQLITE_OMIT_VIRTUALTABLE
 		if (IsVirtual(pTab)){
@@ -969,6 +974,7 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 		}
 	#endif
 
+	//Reconstruct the new column list (with types and not null if applicable) WITHOUT the column to be dropped
 	char bufCol[256] = "";
 	int j = 0;
 	for (i = 0; i< (pTab->nCol); i++) {
@@ -980,6 +986,8 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 			j++;		
 		}
 	}
+	
+	//Didn't find the column...
 	if (j == 0) {
 		sqlite3ErrorMsg(pParse, "Column not found");
 		goto exit_drop_column;
@@ -997,7 +1005,8 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	char *zErrMsg = 0;
 	int  rc;
 	
-	char *sql = sqlite3MPrintf(db, "CREATE TABLE %s(%s);", tempName, bufCol);
+	//Create a dummy table without dropped column
+	char *sql = sqlite3MPrintf(db, "CREATE TEMPORARY TABLE %s(%s);", tempName, bufCol);
 	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
 	if (rc != SQLITE_OK){
 		fprintf(stderr, "SQL error: %s\n", zErrMsg);
@@ -1006,6 +1015,8 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	else {
 		fprintf(stdout, "Table created successfully\n");
 	}
+
+	//Insert data into temp table
 	sql = sqlite3MPrintf(db, "INSERT INTO %s SELECT %s FROM %s;", tempName, bufCol, oldName);
 	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
 	if (rc != SQLITE_OK){
@@ -1015,6 +1026,8 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	else {
 		fprintf(stdout, "Insert into temp completed\n");
 	}
+
+	//Drop original table
 	sql = sqlite3MPrintf(db, "DROP TABLE %s;", oldName);
 	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
 	if (rc != SQLITE_OK){
@@ -1024,6 +1037,8 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	else {
 		fprintf(stdout, "Old Table dropped\n");
 	}
+
+	//Recreate without the dropped column
 	sql = sqlite3MPrintf(db, "CREATE TABLE %s(%s);", oldName, bufCol);
 	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
 	if (rc != SQLITE_OK){
@@ -1033,6 +1048,8 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	else {
 		fprintf(stdout, "Table recreated\n");
 	}
+
+	//Return data to original table
 	sql = sqlite3MPrintf(db, "INSERT INTO %s SELECT %s FROM %s;", oldName, bufCol, tempName);
 	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
 	if (rc != SQLITE_OK){
@@ -1042,6 +1059,8 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	else {
 		fprintf(stdout, "Insert into recreated successful\n");
 	}
+
+	//Drop the temporary table
 	sql = sqlite3MPrintf(db, "DROP TABLE %s;", tempName);
 	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
 	if (rc != SQLITE_OK){
@@ -1052,13 +1071,13 @@ void sqlite3AlterDropColumn(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 		fprintf(stdout, "Temp table dropped\n");
 	}
 
-	//sqlite3_free(sql);
-	
 exit_drop_column:
 	sqlite3SrcListDelete(db, pSrc);
 	return;
 }
 
+/* Attempt at "logical" drop column. Correctly drops column from schema but unable to add data to unused list
+*/
 void sqlite3AlterDropColumn2(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	Table *pTab;
 	Vdbe *v;
@@ -1091,7 +1110,7 @@ void sqlite3AlterDropColumn2(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	if (SQLITE_OK != isSystemTable(pParse, pTab->zName)){
 		goto exit_drop_column2;
 	}
-	printf("%s\n", pTab->zName);
+	
 
 	iDb = sqlite3SchemaToIndex(db, pTab->pSchema);
 	char* oldName = sqlite3MPrintf(db, "%s", pTab->zName);
@@ -1106,6 +1125,7 @@ void sqlite3AlterDropColumn2(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 		}
 	}
 
+	//Compute new column list
 	char bufCol[256] = "";
 	int j = 0;
 	for (i = 0; i< (pTab->nCol); i++) {
@@ -1124,6 +1144,7 @@ void sqlite3AlterDropColumn2(Parse *pParse, SrcList *pSrc, Token *pColDef) {
 	if (!v) goto exit_drop_column2;
 	sqlite3ChangeCookie(pParse, iDb);
 
+	//Update sqlite master
 	sqlite3NestedParse(pParse,
 		"UPDATE main.sqlite_master SET sql = 'CREATE TABLE %s(%s)' WHERE tbl_name=%Q;",
 		pTab->zName, bufCol, pTab->zName
@@ -1139,6 +1160,10 @@ exit_drop_column2:
 	return;
 }
 
+/* Renames a column, maintaining datatype
+	Drops foreign key references to the column, and all indexes/triggers/keys on the table
+	"Innefficient implemenation"
+*/
 void sqlite3AlterRenameColumn(Parse *pParse, SrcList *pSrc, Token *pOColDef, Token *pNColDef) {
 	Table *pTab;
 	Vdbe *v;
@@ -1259,7 +1284,6 @@ void sqlite3AlterRenameColumn(Parse *pParse, SrcList *pSrc, Token *pOColDef, Tok
 		fprintf(stdout, "Insert into temp completed\n");
 	}
 	sql = sqlite3MPrintf(db, "DROP TABLE %s;", oldName);
-	printf("%s\n", sql);
 	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
 	if (rc != SQLITE_OK){
 		fprintf(stderr, "SQL error: %s\n", zErrMsg);
@@ -1302,6 +1326,9 @@ exit_rename_column:
 	return;
 }
 
+/* Less safe implementation, directly alters sqlite_master
+	Keeps indexes/keys/etc, except those on renamed column
+*/
 void sqlite3AlterRenameColumn2(Parse *pParse, SrcList *pSrc, Token *pOColDef, Token *pNColDef) {
 	Table *pTab;
 	Vdbe *v;
